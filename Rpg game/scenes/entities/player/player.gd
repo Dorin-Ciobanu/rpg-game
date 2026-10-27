@@ -1,0 +1,102 @@
+extends CharacterBody2D
+
+enum State {
+	IDLE,
+	RUN,
+	ATTACK,
+	DEAD
+}
+
+@export_category("Stats")
+@export var speed: int = 400
+@export var attack_speed: float = 0.6
+@export var attack_damage: int = 60
+@export var hitpoints: int = 150
+
+var state: State = State.IDLE
+var move_direction: Vector2 = Vector2.ZERO
+var is_attack_button_pressed: bool = false
+
+@onready var animation_tree: AnimationTree = $AnimationTree
+@onready var animation_playback: AnimationNodeStateMachinePlayback = $AnimationTree["parameters/playback"]
+
+func _ready() -> void:
+	animation_tree.set_active(true)
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+		#attack()
+		return
+
+
+func _physics_process(_delta: float) -> void:
+	if Input.is_action_pressed("Attack"):
+		attack()
+		is_attack_button_pressed = true
+	else:
+		is_attack_button_pressed = false
+		
+	if not state == State.ATTACK:
+		movement_loop()
+	
+func movement_loop() -> void:
+	move_direction.x = int(Input.is_action_pressed("right")) - int(Input.is_action_pressed("left"))
+	move_direction.y = int(Input.is_action_pressed("down")) - int(Input.is_action_pressed("up"))
+	var motion: Vector2 = move_direction.normalized() * speed
+	set_velocity(motion)
+	move_and_slide()
+	
+	if state == State.IDLE or State.RUN:
+		if move_direction.x < -0.01:
+			$Sprite2D.flip_h = true
+		elif move_direction.x> 0.01:
+			$Sprite2D.flip_h = false	
+			
+	if motion != Vector2.ZERO and state == State.IDLE:
+		state = State.RUN
+		update_animation()
+	elif motion == Vector2.ZERO and state == State.RUN:
+		state = State.IDLE
+		update_animation()
+		
+		
+func update_animation() -> void:
+	match state:
+		State.IDLE:
+			animation_playback.travel("Idle")
+		State.RUN:
+			animation_playback.travel("Run")
+		State.ATTACK:
+			animation_playback.travel("Attack")
+
+
+func attack() -> void:
+	# Verify the player is not already attacking, and set the player state
+	if state == State.ATTACK && !is_attack_button_pressed:
+		return
+	state = State.ATTACK
+	
+	# Find the attack direction and push to animationtree blendspace2d 
+	var mouse_pos: Vector2 = get_global_mouse_position()
+	var attack_dir: Vector2 = (mouse_pos - global_position).normalized()
+	$Sprite2D.flip_h = attack_dir.x < 0 and abs(attack_dir.x) >= abs(attack_dir.y)
+	animation_tree.set("parameters/Attack/BlendSpace2D/blend_position", attack_dir)
+	update_animation()
+		
+	# Return the player state after atack has finished
+	await get_tree().create_timer(attack_speed).timeout
+	if !is_attack_button_pressed:
+		state = State.IDLE
+
+func take_damage(damage_taken: int) -> void:
+	hitpoints = hitpoints - damage_taken
+	if hitpoints <= 0:
+		death()
+		
+
+func death() -> void:
+	print("You died")
+
+func _on_hit_box_area_entered(area: Area2D) -> void:
+	area.owner.take_damage(attack_damage)
